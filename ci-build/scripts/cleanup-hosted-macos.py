@@ -41,6 +41,18 @@ def run_optional(command):
 
 def main():
     require_hosted_mac(os.environ, Path.home(), platform.system(), platform.machine())
+    # The image default is Xcode 16.4 / SDK 15.5. Chromium 155's system
+    # modules now reference DarwinFoundation{1,2,3}.modulemap from newer SDKs.
+    # Use the already-installed modern toolchain; never download paid tools.
+    modern = Path('/Applications/Xcode_26.3.app/Contents/Developer')
+    if not modern.is_dir():
+        raise ValueError('Expected preinstalled Xcode 26.3 is missing; no cleanup performed')
+    subprocess.run(['sudo', '-n', 'xcode-select', '--switch', str(modern)], check=True)
+    sdk = Path(subprocess.check_output(['xcrun', '--sdk', 'macosx', '--show-sdk-path'], text=True).strip())
+    for number in (1, 2, 3):
+        modulemap = sdk / 'usr/include' / f'DarwinFoundation{number}.modulemap'
+        if not modulemap.is_file():
+            raise ValueError(f'Required Chromium system module map is missing: {modulemap}')
     developer = Path(subprocess.check_output(['xcode-select', '-p'], text=True).strip()).resolve()
     if developer.name != 'Developer' or developer.parent.name != 'Contents':
         raise ValueError('Select full Xcode before cleaning unused copies')

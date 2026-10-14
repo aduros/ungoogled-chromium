@@ -61,8 +61,10 @@ prerequisites. Build hosts download pinned depot_tools and source/toolchains.
 The 80 GiB headroom check is an **operator-selected safety budget**, not a
 measured or documented Chromium minimum; adjust it based on observed usage.
 On a disposable GitHub-hosted ARM Mac ONLY, the workflow first inventories
-Xcodes/simulators, removes unused Xcode installations while preserving the
-selected full Xcode, and deletes simulator devices/runtimes using simctl.
+Xcodes/simulators, selects preinstalled Xcode 26.3 and checks the three
+DarwinFoundation module maps required by Chromium 155, then removes unused
+Xcode installations while preserving that toolchain. It also deletes
+simulator devices/runtimes using simctl.
 Guard checks refuse local or self-hosted cleanup. No unrelated files are
 removed. The initial hosted build uses two compiler workers; `build_jobs: 0`
 conservatively derives concurrency from CPU/RAM if preferred. A standard runner might fit after inspecting capacity,
