@@ -84,6 +84,12 @@ jobs:
         with:
           python-version: '3.13'
 
+      - name: Reclaim disk on the disposable hosted Mac only
+        if: runner.environment == 'github-hosted'
+        env:
+          RUNNER_ENVIRONMENT: ${{ runner.environment }}
+        run: python3 ci-build/scripts/cleanup-hosted-macos.py
+
       - name: Build and ad-hoc sign the test app
         run: bash ci-build/scripts/build-macos.sh
 

@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -11,6 +12,11 @@ import unittest
 sys.path.insert(0, str(Path(__file__).parent))
 from config import load_config
 from variant import short_variant
+
+spec = importlib.util.spec_from_file_location(
+    'hosted_cleanup', Path(__file__).with_name('cleanup-hosted-macos.py'))
+cleanup = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(cleanup)
 
 
 class HelpersTest(unittest.TestCase):
@@ -51,6 +57,35 @@ class HelpersTest(unittest.TestCase):
             short_variant('unexpected upstream source')
         with self.assertRaises(ValueError):
             short_variant('#include "base/mac/mac_util.h"\n' * 2)
+
+    def test_cleanup_refuses_local_and_self_hosted(self):
+        hosted = dict(GITHUB_ACTIONS='true', RUNNER_ENVIRONMENT='github-hosted',
+                      RUNNER_OS='macOS', RUNNER_ARCH='ARM64',
+                      GITHUB_WORKSPACE='/Users/runner/work/repo',
+                      RUNNER_TEMP='/Users/runner/work/_temp')
+        cleanup.require_hosted_mac(hosted, '/Users/runner', 'Darwin', 'arm64')
+        for env, home, system in [({}, '/Users/runner', 'Darwin'),
+                                  (hosted, '/Users/bruno', 'Darwin'),
+                                  (hosted, '/Users/runner', 'Linux'),
+                                  (dict(hosted, RUNNER_ENVIRONMENT='self-hosted'),
+                                   '/Users/runner', 'Darwin')]:
+            with self.assertRaises(ValueError):
+                cleanup.require_hosted_mac(env, home, system, 'arm64')
+
+    def test_cleanup_preserves_active_xcode_and_symlinks(self):
+        apps = Path(self.temp.name) / 'Applications'
+        apps.mkdir()
+        active = apps / 'Xcode_16.4.app'
+        active.mkdir()
+        unused = apps / 'Xcode_16.3.app'
+        unused.mkdir()
+        (apps / 'Xcode.app').symlink_to(active, target_is_directory=True)
+        (apps / 'Other.app').mkdir()
+        self.assertEqual(cleanup.unused_xcodes(apps, active), [unused])
+
+    def test_cleanup_rejects_unknown_selected_toolchain(self):
+        with self.assertRaises(ValueError):
+            cleanup.unused_xcodes(self.temp.name, Path(self.temp.name) / 'missing.app')
 
     def test_deadline_stops_a_long_running_group(self):
         helper = Path(__file__).with_name('deadline.py')
