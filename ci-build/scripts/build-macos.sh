@@ -55,6 +55,12 @@ run git -C "$work/depot_tools" fetch --depth=1 origin "$depot_revision"
 git -C "$work/depot_tools" checkout --detach FETCH_HEAD
 export PATH="$PATH:$work/depot_tools"
 export DEPOT_TOOLS_UPDATE=0 DEPOT_TOOLS_METRICS=0
+# Disabling auto-update also skips gclient's usual Python bootstrap. GN and
+# autoninja explicitly use depot_tools/python-bin/python3, not setup-python.
+# ensure_bootstrap downloads tools for this pin without updating its checkout.
+run "$work/depot_tools/ensure_bootstrap"
+[[ "$(git -C "$work/depot_tools" rev-parse HEAD)" == "$depot_revision" ]]
+run "$work/depot_tools/python-bin/python3" --version
 mkdir "$work/chromium"
 cd "$work/chromium"
 cat > .gclient <<'CONFIG'
