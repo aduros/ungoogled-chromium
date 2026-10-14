@@ -1,0 +1,109 @@
+name: Window-buttons macOS experiment
+
+# A branch-local push trigger avoids changing the fork's default or PR branch.
+on:
+  push:
+    branches: ['bruno/2026-10-14/window-buttons-ci']
+    paths:
+      - '.github/workflows/window-buttons-ci.yml'
+      - 'ci-build/**'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: window-buttons-experiment-${{ github.ref }}
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  config:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      mode: ${{ steps.config.outputs.mode }}
+      runner_labels: ${{ steps.config.outputs.runner_labels }}
+      variant: ${{ steps.config.outputs.variant }}
+      min_free_gib: ${{ steps.config.outputs.min_free_gib }}
+      build_jobs: ${{ steps.config.outputs.build_jobs }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Test build helpers without launching a browser
+        env:
+          TMPDIR: ${{ runner.temp }}
+        run: python3 ci-build/scripts/test_helpers.py
+      - id: config
+        run: python3 ci-build/scripts/config.py ci-build/config.json >> "$GITHUB_OUTPUT"
+
+  probe:
+    needs: config
+    runs-on: ${{ fromJSON(needs.config.outputs.runner_labels) }}
+    timeout-minutes: 10
+    steps:
+      - name: Report capacity without downloading Chromium
+        run: |
+          set -euo pipefail
+          {
+            echo '# macOS runner capacity'
+            echo '```text'
+            uname -m
+            sw_vers
+            sysctl -n hw.memsize hw.logicalcpu
+            df -h "$RUNNER_TEMP" "$GITHUB_WORKSPACE"
+            xcode-select -p
+            xcodebuild -version || true
+            xcrun --sdk macosx --show-sdk-version || true
+            xcrun --find metal || true
+            echo '```'
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+
+  build:
+    needs: [config, probe]
+    if: needs.config.outputs.mode == 'build'
+    runs-on: ${{ fromJSON(needs.config.outputs.runner_labels) }}
+    timeout-minutes: 350
+    env:
+      VARIANT: ${{ needs.config.outputs.variant }}
+      MIN_FREE_GIB: ${{ needs.config.outputs.min_free_gib }}
+      BUILD_JOBS: ${{ needs.config.outputs.build_jobs }}
+      DEPOT_TOOLS_UPDATE: '0'
+      DEPOT_TOOLS_METRICS: '0'
+    steps:
+      - name: Check out the experiment branch, not the PR branch
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+
+      - name: Set up Python for depot_tools
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.13'
+
+      - name: Build and ad-hoc sign the test app
+        run: bash ci-build/scripts/build-macos.sh
+
+      - name: Upload completed signed test apps
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: chromium-window-buttons-macos-arm64-${{ needs.config.outputs.variant }}
+          path: dist/*.zip
+          if-no-files-found: ignore
+          retention-days: 3
+          compression-level: 0
+
+      - name: Upload build logs and provenance
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: window-buttons-build-logs-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            logs/
+            dist/*.sha256
+          if-no-files-found: warn
+          retention-days: 3

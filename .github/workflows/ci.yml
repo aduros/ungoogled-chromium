@@ -3,8 +3,8 @@ name: Code Validation
 on:
   pull_request:
   push:
-    branches:
-      - '**'
+    branches-ignore:
+      - 'bruno/2026-10-14/window-buttons-ci'
     tags-ignore:
       - '**'
   workflow_dispatch:
