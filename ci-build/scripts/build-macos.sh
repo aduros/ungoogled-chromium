@@ -45,7 +45,7 @@ command -v xcrun
 work="$RUNNER_TEMP/window-buttons-ci"
 mkdir "$work"
 echo "Build workspace: $work"
-deadline="$(( $(date +%s) + ${BUILD_MINUTES:-45} * 60 ))"
+deadline="$(( $(date +%s) + ${BUILD_MINUTES:-270} * 60 ))"
 run() { python3 "$root/ci-build/scripts/deadline.py" "$deadline" "$@"; }
 chromium_revision=3ff7ac5a9224be9156d7f8703a06e22890aafd34
 chromium_version=155.0.8059.39
@@ -113,10 +113,9 @@ for variant in "${variants[@]}"; do
     cp "$work/native-explicit.mm" "$native"
   fi
   git diff --binary > "$root/logs/source-$variant.patch"
-  # Record the actual remaining graph before compiling; compare on resume.
-  run "$work/depot_tools/autoninja" -C "$out" -n chrome chrome/installer/mac:mac \
-    > "$root/logs/planned-$variant.log" 2>&1
-  tail -n 3 "$root/logs/planned-$variant.log"
+  # Ninja reports its remaining task count during the real build. An extra
+  # full-graph dry-run cost ~12 minutes on the small hosted Mac; avoid it now
+  # that checkpoint reuse has been validated.
   touch "$work/build-started"
   run "$work/depot_tools/autoninja" -C "$out" -j "$jobs" chrome chrome/installer/mac:mac
 

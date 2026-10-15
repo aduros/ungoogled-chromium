@@ -75,8 +75,8 @@ jobs:
       BUILD_JOBS: ${{ needs.config.outputs.build_jobs }}
       DEPOT_TOOLS_UPDATE: '0'
       DEPOT_TOOLS_METRICS: '0'
-      # Short first chunk to verify checkpoint upload/restore before a long run.
-      BUILD_MINUTES: '45'
+      # Restore/reuse validated; reserve time for checkpoint compression/upload.
+      BUILD_MINUTES: '270'
     steps:
       - name: Check out the experiment branch, not the PR branch
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6

@@ -83,12 +83,11 @@ native controls; it should not be adopted merely because it is shorter.
 
 ## Resumable Ninja checkpoints
 
-The initial checkpoint-validation chunk has a 45-minute process-group deadline,
-including source preparation. A timeout is still reported as a failed build,
-not an app artifact, but a subsequent step saves the completed Ninja outputs.
-After validating restore/reuse, increase `BUILD_MINUTES` in the workflow for
-longer chunks. Rerun the failed build job to continue using its latest cache;
-no workflow dispatch or PR changes are needed.
+Build chunks have a 270-minute process-group deadline, including source
+preparation, leaving time for checkpoint compression/upload. A timeout is still
+reported as a failed build, not an app artifact, but a subsequent step saves the
+completed Ninja outputs. Rerun the failed build job to continue using its latest
+cache; no workflow dispatch or PR changes are needed.
 
 Checkpoints contain only the build output tree and a source/tool-input manifest,
 not the source checkout, HOME, credentials, or browser profiles. Source is fetched
@@ -97,8 +96,11 @@ SHA-256 content checks restore input mtimes ONLY for unchanged files, while
 changed inputs retain fresh timestamps so Ninja rebuilds them. Output nanosecond
 timestamps are restored too: BSD tar rounds these, which otherwise invalidates
 Ninja's dependency database. A small real-Ninja/depfile test verifies reuse after
-a simulated fresh checkout and invalidation after edits; Chromium-scale reuse
-and cache size remain to be measured in CI.
+a simulated fresh checkout and invalidation after edits. Two 45-minute CI test
+chunks validated Chromium-scale reuse: the first snapshot was ~390 MB, the
+rerun content-matched 1,091,156 inputs and reduced pending tasks from 57,488 to
+51,017. Its updated snapshot was ~400 MB. A diagnostic full-graph dry-run took
+~12 minutes and has been removed; the real build reports remaining task counts.
 
 Keys isolate architecture, source/depot revisions, UI patch, variant, GN args,
 Xcode/SDK build, image version and workspace path. Checkpoints are checksum-
