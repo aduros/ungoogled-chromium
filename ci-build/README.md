@@ -81,13 +81,41 @@ Both retain the Mac empty-caption-bounds check and other-platform UI changes.
 If the short variant still displays buttons, the experiment has failed to hide
 native controls; it should not be adopted merely because it is shorter.
 
-The build has a 300-minute process-group deadline, leaving time to sign/upload
-within the job's 350-minute limit. This is not a resumable multi-job build;
-a slow runner can time out without producing an app. Logs are uploaded on
-failure; any completed first variant is still uploaded if the second fails.
-Artifacts are retained for 3 days to limit storage usage. No build cache is
-uploaded. Only the script's private temporary source tree is removed after a
-successful run; Actions normally cleans RUNNER_TEMP after the job.
+## Resumable Ninja checkpoints
+
+The initial checkpoint-validation chunk has a 45-minute process-group deadline,
+including source preparation. A timeout is still reported as a failed build,
+not an app artifact, but a subsequent step saves the completed Ninja outputs.
+After validating restore/reuse, increase `BUILD_MINUTES` in the workflow for
+longer chunks. Rerun the failed build job to continue using its latest cache;
+no workflow dispatch or PR changes are needed.
+
+Checkpoints contain only the build output tree and a source/tool-input manifest,
+not the source checkout, HOME, credentials, or browser profiles. Source is fetched
+fresh at its pinned revisions. The private build path is fixed across jobs.
+SHA-256 content checks restore input mtimes ONLY for unchanged files, while
+changed inputs retain fresh timestamps so Ninja rebuilds them. Output nanosecond
+timestamps are restored too: BSD tar rounds these, which otherwise invalidates
+Ninja's dependency database. A small real-Ninja/depfile test verifies reuse after
+a simulated fresh checkout and invalidation after edits; Chromium-scale reuse
+and cache size remain to be measured in CI.
+
+Keys isolate architecture, source/depot revisions, UI patch, variant, GN args,
+Xcode/SDK build, image version and workspace path. Checkpoints are checksum-
+validated and extraction rejects traversal and writes through external links.
+The compressed snapshot is capped at **8 GiB**, below the default **10 GB** repo
+cache quota; oversize snapshots are deleted, never uploaded. Unique snapshots
+use GitHub's default quota/oldest-entry eviction; no paid storage setting is
+changed. Only experiment-branch push runs write these caches. Clang modules are
+unchanged; no ccache/sccache sloppiness is enabled.
+
+The job allows 35 minutes for manifest creation/compression after the build
+chunk, then uploads the snapshot even after a controlled timeout. Source is
+not cached, so each chunk still pays the download/setup cost. This is not yet
+a guarantee that the eventual output tree fits the cache. If size or restore
+validation fails, inspect the logs rather than queueing blind cold retries.
+App artifacts/logs are retained for 3 days. Actions removes RUNNER_TEMP after
+the job; the build script leaves its workspace for checkpoint creation.
 
 ## Testing the artifact
 

@@ -40,9 +40,12 @@ command -v codesign
 command -v ditto
 command -v xcrun
 
-work="$(mktemp -d "$RUNNER_TEMP/window-buttons-ci.XXXXXX")"
+# Fixed paths are required by cached Ninja command lines and dependency files.
+# Refuse an existing workspace rather than deleting unknown runner contents.
+work="$RUNNER_TEMP/window-buttons-ci"
+mkdir "$work"
 echo "Build workspace: $work"
-deadline="$(( $(date +%s) + 300 * 60 ))"
+deadline="$(( $(date +%s) + ${BUILD_MINUTES:-45} * 60 ))"
 run() { python3 "$root/ci-build/scripts/deadline.py" "$deadline" "$@"; }
 chromium_revision=3ff7ac5a9224be9156d7f8703a06e22890aafd34
 chromium_version=155.0.8059.39
@@ -91,20 +94,13 @@ git apply "$patch_file"
 cp "$native" "$work/native-explicit.mm"
 
 out=out/WindowButtonsCI
+run python3 "$root/ci-build/scripts/checkpoint.py" restore \
+  --work "$work" --cache "$root/checkpoint" --identity "${CHECKPOINT_ID:?}"
 mkdir -p "$out"
-cat > "$out/args.gn" <<'ARGS'
-is_debug = false
-is_component_build = false
-is_official_build = false
-target_cpu = "arm64"
-symbol_level = 0
-blink_symbol_level = 0
-chrome_pgo_phase = 0
-use_thin_lto = false
-use_remoteexec = false
-use_siso = false
-enable_updater = false
-ARGS
+# Preserve args.gn's timestamp on a matching restored checkpoint.
+if ! cmp -s "$root/ci-build/args.gn" "$out/args.gn"; then
+  cp "$root/ci-build/args.gn" "$out/args.gn"
+fi
 cp "$out/args.gn" "$root/logs/args.gn"
 run "$work/depot_tools/gn" gen "$out" --fail-on-unused-args
 
@@ -117,6 +113,11 @@ for variant in "${variants[@]}"; do
     cp "$work/native-explicit.mm" "$native"
   fi
   git diff --binary > "$root/logs/source-$variant.patch"
+  # Record the actual remaining graph before compiling; compare on resume.
+  run "$work/depot_tools/autoninja" -C "$out" -n chrome chrome/installer/mac:mac \
+    > "$root/logs/planned-$variant.log" 2>&1
+  tail -n 3 "$root/logs/planned-$variant.log"
+  touch "$work/build-started"
   run "$work/depot_tools/autoninja" -C "$out" -j "$jobs" chrome chrome/installer/mac:mac
 
   signed="$work/signed-$variant"
@@ -162,5 +163,5 @@ if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
     echo 'Download the artifact and follow TESTING.md with a fresh profile.'
   } >> "$GITHUB_STEP_SUMMARY"
 fi
-# Remove only this script's private temporary checkout, after artifact creation.
-rm -rf -- "$work"
+# Leave the private workspace for the following checkpoint step, including on
+# a controlled timeout. Actions removes RUNNER_TEMP when the job ends.

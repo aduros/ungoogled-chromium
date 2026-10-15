@@ -36,7 +36,9 @@ jobs:
       - name: Test build helpers without launching a browser
         env:
           TMPDIR: ${{ runner.temp }}
-        run: python3 ci-build/scripts/test_helpers.py
+        run: |
+          python3 ci-build/scripts/test_helpers.py
+          python3 ci-build/scripts/test_checkpoint.py
       - id: config
         run: python3 ci-build/scripts/config.py ci-build/config.json >> "$GITHUB_OUTPUT"
 
@@ -73,6 +75,8 @@ jobs:
       BUILD_JOBS: ${{ needs.config.outputs.build_jobs }}
       DEPOT_TOOLS_UPDATE: '0'
       DEPOT_TOOLS_METRICS: '0'
+      # Short first chunk to verify checkpoint upload/restore before a long run.
+      BUILD_MINUTES: '45'
     steps:
       - name: Check out the experiment branch, not the PR branch
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
@@ -90,8 +94,43 @@ jobs:
           RUNNER_ENVIRONMENT: ${{ runner.environment }}
         run: python3 ci-build/scripts/cleanup-hosted-macos.py
 
+      - name: Identify the exact checkpoint toolchain and recipe
+        id: checkpoint-key
+        run: |
+          command -v zstd
+          python3 ci-build/scripts/checkpoint.py key >> "$GITHUB_OUTPUT"
+
+      - name: Restore the latest compatible bounded Ninja checkpoint
+        uses: actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25 # v5
+        with:
+          path: checkpoint/
+          key: ${{ steps.checkpoint-key.outputs.identity }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            ${{ steps.checkpoint-key.outputs.identity }}-
+
       - name: Build and ad-hoc sign the test app
+        env:
+          CHECKPOINT_ID: ${{ steps.checkpoint-key.outputs.identity }}
         run: bash ci-build/scripts/build-macos.sh
+
+      - name: Save progress even after a controlled build timeout
+        id: checkpoint
+        if: always() && steps.checkpoint-key.outputs.identity != ''
+        timeout-minutes: 35
+        env:
+          CHECKPOINT_ID: ${{ steps.checkpoint-key.outputs.identity }}
+        run: |
+          mkdir -p logs
+          python3 ci-build/scripts/checkpoint.py save \
+            --work "$RUNNER_TEMP/window-buttons-ci" --cache "$PWD/checkpoint" \
+            --identity "$CHECKPOINT_ID" 2>&1 | tee logs/checkpoint-save.log
+
+      - name: Upload the new bounded checkpoint to the free cache quota
+        if: always() && steps.checkpoint.outputs.ready == 'true'
+        uses: actions/cache/save@caa296126883cff596d87d8935842f9db880ef25 # v5
+        with:
+          path: checkpoint/
+          key: ${{ steps.checkpoint-key.outputs.identity }}-${{ github.run_id }}-${{ github.run_attempt }}
 
       - name: Upload completed signed test apps
         if: always()
