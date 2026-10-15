@@ -41,6 +41,12 @@ def run_optional(command):
 
 def main():
     require_hosted_mac(os.environ, Path.home(), platform.system(), platform.machine())
+    # Chromium's Mac build docs recommend a larger vnode cache for its large
+    # checkout. Runtime-only tuning on this disposable machine, never persisted.
+    vnodes = int(subprocess.check_output(['sysctl', '-n', 'kern.maxvnodes'], text=True))
+    print(f'Current vnode cache ceiling: {vnodes}', flush=True)
+    if vnodes < 524288:
+        run_optional(['sudo', '-n', 'sysctl', 'kern.maxvnodes=524288'])
     # The image default is Xcode 16.4 / SDK 15.5. Chromium 155's system
     # modules now reference DarwinFoundation{1,2,3}.modulemap from newer SDKs.
     # Use the already-installed modern toolchain; never download paid tools.
