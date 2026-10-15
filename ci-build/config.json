@@ -3,5 +3,5 @@
   "runner_labels": ["macos-15"],
   "variant": "explicit",
   "min_free_gib": 80,
-  "build_jobs": 2
+  "build_jobs": 3
 }

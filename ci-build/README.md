@@ -67,8 +67,10 @@ Xcode installations while preserving that toolchain. It also deletes
 simulator devices/runtimes using simctl. Chromium's documented vnode-cache
 ceiling of at least 524,288 is applied at runtime only (no persistent config).
 Guard checks refuse local or self-hosted cleanup. No unrelated files are
-removed. The initial hosted build uses two compiler workers; `build_jobs: 0`
-conservatively derives concurrency from CPU/RAM if preferred. A standard runner might fit after inspecting capacity,
+removed. The current chunk tests three compiler workers to use all runner CPUs,
+with VM/swap samples in `logs/resources.jsonl`; roll back to two if memory
+pressure causes failures. `build_jobs: 0` conservatively derives concurrency
+from CPU/RAM if preferred. A standard runner might fit after inspecting capacity,
 but successful completion within the hosted time limit is NOT guaranteed.
 
 Variant choices:

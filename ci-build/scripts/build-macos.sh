@@ -12,6 +12,12 @@ exec > >(tee -a "$root/logs/build.log") 2>&1
 }
 case "${VARIANT:?}" in explicit|short|both) ;; *) exit 2 ;; esac
 
+# Keep raw VM/swap samples for the three-worker experiment. Stop the sampler
+# when this script exits, including on the controlled build timeout.
+python3 "$root/ci-build/scripts/resources.py" "$root/logs/resources.jsonl" &
+resource_monitor=$!
+trap 'kill "$resource_monitor" 2>/dev/null || true; wait "$resource_monitor" 2>/dev/null || true' EXIT
+
 # This is an operator budget, not an asserted/documented Chromium minimum.
 python3 - "$RUNNER_TEMP" "${MIN_FREE_GIB:?}" "${BUILD_JOBS:?}" "$root/logs/jobs" <<'PY'
 import os, shutil, subprocess, sys
