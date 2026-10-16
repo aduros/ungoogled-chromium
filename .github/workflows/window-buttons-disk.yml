@@ -1,0 +1,72 @@
+name: Window-buttons checkpoint disk audit
+
+# Read existing checkpoint metadata only; does not trigger another Mac build.
+on:
+  push:
+    branches: ['bruno/2026-10-14/window-buttons-ci']
+    paths: ['.github/workflows/window-buttons-disk.yml']
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Read the existing Mac checkpoint without modifying it
+        uses: actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25 # v5
+        with:
+          path: checkpoint/
+          key: disk-audit-${{ github.run_id }}
+          restore-keys: |
+            window-buttons-ninja-v1-bc7c578e82b8981df5733942c7ae1ed6-
+
+      - name: Report uncompressed source, tool and output sizes
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          import subprocess
+          import tarfile
+
+          cache = Path('checkpoint')
+          metadata = json.loads((cache / 'snapshot.json').read_text())
+          output_bytes = 0
+          records = None
+          child = subprocess.Popen(['zstd', '-dc', str(cache / 'snapshot.tar.zst')], stdout=subprocess.PIPE)
+          try:
+              with tarfile.open(fileobj=child.stdout, mode='r|') as archive:
+                  for member in archive:
+                      if member.name == 'checkpoint-inputs.json':
+                          records = json.load(archive.extractfile(member))['inputs']
+                      elif member.isfile():
+                          output_bytes += member.size
+              if child.wait():
+                  raise SystemExit('Cannot read checkpoint')
+          finally:
+              if child.poll() is None:
+                  child.kill()
+                  child.wait()
+              child.stdout.close()
+          if records is None:
+              raise SystemExit('Input manifest missing')
+          source = sum(item[1] for item in records if item[0].startswith('chromium/'))
+          depot = sum(item[1] for item in records if item[0].startswith('depot_tools/'))
+          rows = [('Source + dependencies + Chromium toolchains', source),
+                  ('External depot_tools + bootstrapped tools', depot),
+                  ('Partial Ninja outputs (regular files)', output_bytes),
+                  ('Checkpoint archive (compressed)', metadata['bytes'])]
+          report = '# Checkpoint logical file-size audit\n\n'
+          report += '| Item | GiB |\n|---|---:|\n'
+          for name, size in rows:
+              report += f'| {name} | {size / 1024**3:.2f} |\n'
+          report += f'\nCurrent inputs + partial outputs: {(source + depot + output_bytes) / 1024**3:.2f} GiB.\n'
+          report += '\nThese are logical file sizes, not du/APFS allocation. Source .git stores, SDK/Xcode, user caches, future outputs, linking/signing copies and safety headroom are excluded. Partial build only, not peak requirements.\n'
+          report += f'\nSnapshot identity: `{metadata["identity"]}`; SHA256: `{metadata["sha256"]}`.\n'
+          print(report)
+          with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as summary:
+              summary.write(report)
+          PY
